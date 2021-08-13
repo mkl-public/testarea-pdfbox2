@@ -21,7 +21,7 @@
 	</build>
 	<properties>
 		<pdfbox.version>[2.0.0,3.0.0)</pdfbox.version>
-		<bc.version>1.54</bc.version>
+		<bc.version>1.67</bc.version>
 		<junit.version>4.13.1</junit.version>
 	</properties>
 	<dependencies>
