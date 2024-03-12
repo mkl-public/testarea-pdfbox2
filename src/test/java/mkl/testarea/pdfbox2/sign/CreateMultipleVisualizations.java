@@ -38,6 +38,7 @@ import org.apache.pdfbox.pdmodel.interactive.digitalsignature.SignatureInterface
 import org.apache.pdfbox.pdmodel.interactive.form.PDAcroForm;
 import org.apache.pdfbox.pdmodel.interactive.form.PDField;
 import org.apache.pdfbox.pdmodel.interactive.form.PDSignatureField;
+import org.apache.pdfbox.util.Matrix;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import org.bouncycastle.asn1.cms.CMSObjectIdentifiers;
 import org.bouncycastle.cert.X509CertificateHolder;
@@ -332,6 +333,127 @@ public class CreateMultipleVisualizations implements SignatureInterface {
             pageTreeObject = (COSDictionary) pageTreeObject.getDictionaryObject(COSName.PARENT);
         }
     }
+
+    /**
+     * <a href="https://stackoverflow.com/questions/78138790/itext-and-pdfbox-rotation-settings-compatibility-issues">
+     * Itext and Pdfbox Rotation settings compatibility issues
+     * </a>
+     * <br/>
+     * <a href="https://drive.google.com/file/d/19JTn1S8DBHVUIMegQOdNMw0q7acHU8Kp/view?usp=sharing">
+     * 1rotate90-rotated.pdf
+     * </a>
+     * <p>
+     * To use the {@link #testCreateSignatureWithMultipleImageOnlyVisualizations()} code
+     * also for a PDF with page rotation, one must take the page rotation into consideration
+     * when drawing the signature appearance, see {@link #addRotationAwareImageOnlySignatureField(PDDocument, PDPage, PDRectangle, PDSignature)}.
+     * </p>
+     */
+    @Test
+    public void testCreateSignatureWithMultipleRotationAwareImageOnlyVisualizations() throws IOException {
+        try (   InputStream resource = getClass().getResourceAsStream("1rotate90-rotated.pdf");
+                OutputStream result = new FileOutputStream(new File(RESULT_FOLDER, "1rotate90-rotatedSignedMultipleImageOnlyVisualizations.pdf"));
+                PDDocument pdDocument = PDDocument.load(resource)   )
+        {
+            PDAcroForm acroForm = pdDocument.getDocumentCatalog().getAcroForm();
+            if (acroForm == null) {
+                pdDocument.getDocumentCatalog().setAcroForm(acroForm = new PDAcroForm(pdDocument));
+            }
+            acroForm.setSignaturesExist(true);
+            acroForm.setAppendOnly(true);
+            acroForm.getCOSObject().setDirect(true);
+
+            PDRectangle rectangle = new PDRectangle(600, 100, 100, 300);
+            PDSignature signature = new PDSignature();
+            signature.setFilter(PDSignature.FILTER_ADOBE_PPKLITE);
+            signature.setSubFilter(PDSignature.SUBFILTER_ADBE_PKCS7_DETACHED);
+            signature.setName("Example User");
+            signature.setLocation("Los Angeles, CA");
+            signature.setReason("Testing");
+            signature.setSignDate(Calendar.getInstance());
+            pdDocument.addSignature(signature, this);
+
+            for (PDPage pdPage : pdDocument.getPages()) {
+                addRotationAwareImageOnlySignatureField(pdDocument, pdPage, rectangle, signature);
+            }
+
+            pdDocument.saveIncremental(result);
+        }
+    }
+
+    /**
+     * Based on {@link #addImageOnlySignatureField(PDDocument, PDPage, PDRectangle, PDSignature),
+     * merely taking page rotation into account and counteracting it, see
+     * {@link #testCreateSignatureWithMultipleRotationAwareImageOnlyVisualizations()}.
+     */
+    void addRotationAwareImageOnlySignatureField(PDDocument pdDocument, PDPage pdPage, PDRectangle rectangle, PDSignature signature) throws IOException {
+        PDAcroForm acroForm = pdDocument.getDocumentCatalog().getAcroForm();
+        List<PDField> acroFormFields = acroForm.getFields();
+
+        PDSignatureField signatureField = new PDSignatureField(acroForm);
+        signatureField.setValue(signature);
+        PDAnnotationWidget widget = signatureField.getWidgets().get(0);
+        acroFormFields.add(signatureField);
+
+        widget.setRectangle(rectangle);
+        widget.setPage(pdPage);
+
+        // from PDVisualSigBuilder.createHolderForm()
+        PDStream stream = new PDStream(pdDocument);
+        PDFormXObject form = new PDFormXObject(stream);
+        PDResources res = new PDResources();
+        form.setResources(res);
+        form.setFormType(1);
+        PDRectangle bbox = new PDRectangle(rectangle.getWidth(), rectangle.getHeight());
+
+        form.setBBox(bbox);
+
+        // from PDVisualSigBuilder.createAppearanceDictionary()
+        PDAppearanceDictionary appearance = new PDAppearanceDictionary();
+        appearance.getCOSObject().setDirect(true);
+        PDAppearanceStream appearanceStream = new PDAppearanceStream(form.getCOSObject());
+        appearance.setNormalAppearance(appearanceStream);
+        widget.setAppearance(appearance);
+
+        try (   PDPageContentStream cs = new PDPageContentStream(pdDocument, appearanceStream);
+                InputStream imageResource = getClass().getResourceAsStream("/mkl/testarea/pdfbox2/content/Willi-1.jpg") )
+        {
+            Matrix matrix = new Matrix();
+            boolean switchLengths = false;
+            switch (pdPage.getRotation() % 360) {
+            case 90:
+                matrix.translate(rectangle.getWidth(), 0);
+                matrix.rotate(Math.PI/2);
+                switchLengths = true;
+                break;
+            case 180: //untested
+                matrix.translate(rectangle.getWidth(), rectangle.getHeight());
+                matrix.rotate(Math.PI);
+                break;
+            case 270: //untested
+                matrix.translate(0, rectangle.getHeight());
+                matrix.rotate(-Math.PI/2);
+                switchLengths = true;
+                break;
+            }
+            cs.transform(matrix);
+
+            PDImageXObject pdImage = PDImageXObject.createFromByteArray(pdDocument, ByteStreams.toByteArray(imageResource), "Willi");
+            cs.addComment("This is a comment");
+            if (switchLengths)
+                cs.drawImage(pdImage, 0, 0, rectangle.getHeight(), rectangle.getWidth());
+            else
+                cs.drawImage(pdImage, 0, 0, rectangle.getWidth(), rectangle.getHeight());
+        }
+
+        pdPage.getAnnotations().add(widget);
+        
+        COSDictionary pageTreeObject = pdPage.getCOSObject(); 
+        while (pageTreeObject != null) {
+            pageTreeObject.setNeedToBeUpdated(true);
+            pageTreeObject = (COSDictionary) pageTreeObject.getDictionaryObject(COSName.PARENT);
+        }
+    }
+
 
     /**
      * Copy of <code>org.apache.pdfbox.examples.signature.CreateSignatureBase.sign(InputStream)</code>
