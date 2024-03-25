@@ -107,6 +107,15 @@ public class OptimizeAfterMerge {
      * @see #testOptimizeDummy()
      */
     public void optimize(PDDocument pdDocument) throws IOException {
+
+        // differ page a bit to reassure we handle multiple identical page objets
+        for (int i = 0; i < pdDocument.getPages().getCount(); i++) {
+            PDPage page = pdDocument.getPages().get(i);
+            COSDictionary customDict = new COSDictionary();
+            customDict.setInt("CustomCounter", i + 1);
+            page.getCOSObject().setItem("CustomCounterEntry", customDict);
+        }
+        
         Map<COSBase, Collection<Reference>> complexObjects = findComplexObjects(pdDocument);
         for (int pass = 0; ; pass++) {
             int merges = mergeDuplicates(complexObjects);
