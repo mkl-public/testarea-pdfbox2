@@ -147,4 +147,46 @@ public class AddImage {
             doc.close();
         }
     }
+
+    /**
+     * <a href="https://stackoverflow.com/questions/78216277/draw-transparent-png-image-to-pdf-using-pdfbox-and-seeing-gray-halo-around-the-e">
+     * Draw transparent png image to pdf using pdfbox and seeing gray halo around the edges
+     * </a>
+     * <br/>
+     * <a href="https://i.stack.imgur.com/ZmX0D.png">
+     * Glow.png
+     * </a>
+     * <br/>
+     * GlowColorExtended.png (Glow.png with light pink instead of black in the transparent areas)
+     * <p>
+     * The rendering artifacts don't occur for the image in which the light pink continues into
+     * the transparent areas instead of being replaced by black there.
+     * </p>
+     */
+    @Test
+    public void testImageWithTransparency() throws IOException {
+        PDDocument doc = new PDDocument();
+        PDImageXObject glowImage;
+        PDImageXObject glowColorExtendedImage;
+        try (InputStream imageResource = getClass().getResourceAsStream("Glow.png")) {
+            glowImage = PDImageXObject.createFromByteArray(doc, ByteStreams.toByteArray(imageResource), "Glow");
+        }
+        try (InputStream imageResource = getClass().getResourceAsStream("GlowColorExtended.png")) {
+            glowColorExtendedImage = PDImageXObject.createFromByteArray(doc, ByteStreams.toByteArray(imageResource), "GlowColorExtended");
+        }
+
+        PDPage page = new PDPage();
+        doc.addPage(page);
+        PDRectangle cropBox = page.getCropBox();
+        PDPageContentStream contentStream = new PDPageContentStream(doc, page);
+
+        contentStream.drawImage(glowImage, cropBox.getLowerLeftX(), cropBox.getLowerLeftY() + cropBox.getHeight()/2, 1300*0.3078f, 874*0.3078f);
+
+        contentStream.drawImage(glowColorExtendedImage, cropBox.getLowerLeftX(), cropBox.getLowerLeftY(), 1300*0.3078f, 874*0.3078f);
+
+        contentStream.close();
+
+        doc.save(new File(RESULT_FOLDER, "image-withTransparency.pdf"));
+        doc.close();
+    }
 }
