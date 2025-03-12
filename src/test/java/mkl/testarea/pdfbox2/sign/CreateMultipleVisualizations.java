@@ -17,6 +17,7 @@ import java.util.Arrays;
 import java.util.Calendar;
 import java.util.List;
 
+import org.apache.pdfbox.cos.COSArray;
 import org.apache.pdfbox.cos.COSDictionary;
 import org.apache.pdfbox.cos.COSName;
 import org.apache.pdfbox.io.IOUtils;
@@ -33,6 +34,7 @@ import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
 import org.apache.pdfbox.pdmodel.interactive.annotation.PDAnnotationWidget;
 import org.apache.pdfbox.pdmodel.interactive.annotation.PDAppearanceDictionary;
 import org.apache.pdfbox.pdmodel.interactive.annotation.PDAppearanceStream;
+import org.apache.pdfbox.pdmodel.interactive.digitalsignature.ExternalSigningSupport;
 import org.apache.pdfbox.pdmodel.interactive.digitalsignature.PDSignature;
 import org.apache.pdfbox.pdmodel.interactive.digitalsignature.SignatureInterface;
 import org.apache.pdfbox.pdmodel.interactive.form.PDAcroForm;
@@ -454,6 +456,78 @@ public class CreateMultipleVisualizations implements SignatureInterface {
         }
     }
 
+    /**
+     * <a href="https://stackoverflow.com/questions/79488673/how-to-properly-add-multiple-signatures-to-a-document-and-sign-it-externally-in">
+     * How to properly add multiple signatures to a document and sign it externally in a signing session using PDFBox?
+     * </a>
+     * <br>
+     * <a href="https://github.com/tai-nguyen-mesoneer/test-data/blob/master/Web%20Application%20Audit%20_Digital%20Onboarding_v1.0-mesoneer%20(003).pdf">
+     * Web Application Audit _Digital Onboarding_v1.0-mesoneer (003).pdf
+     * </a>
+     * <p>
+     * In this variant of {@link #testCreateSignatureWithMultipleVisualizations()}
+     * we additionally make sure that no invisible signature is created.
+     * </p>
+     */
+    @Test
+    public void testCreateSignatureWithMultipleVisualizationsWebApplicationAudit_DigitalOnboarding_v10mesoneer003() throws IOException {
+        try (   InputStream resource = getClass().getResourceAsStream("Web Application Audit _Digital Onboarding_v1.0-mesoneer (003).pdf");
+                OutputStream result = new FileOutputStream(new File(RESULT_FOLDER, "Web Application Audit _Digital Onboarding_v1.0-mesoneer (003)-SignedMultipleVisualizations.pdf"));
+                PDDocument pdDocument = PDDocument.load(resource)   )
+        {
+            PDAcroForm acroForm = pdDocument.getDocumentCatalog().getAcroForm();
+            if (acroForm == null) {
+                pdDocument.getDocumentCatalog().setAcroForm(acroForm = new PDAcroForm(pdDocument));
+            }
+            acroForm.setSignaturesExist(true);
+            acroForm.setAppendOnly(true);
+            acroForm.getCOSObject().setDirect(true);
+
+            PDSignature pdSignature = new PDSignature();
+            pdSignature.setFilter(PDSignature.FILTER_ADOBE_PPKLITE);
+            pdSignature.setSubFilter(PDSignature.SUBFILTER_ETSI_CADES_DETACHED);
+            Calendar signDateCalendar = Calendar.getInstance();
+            pdSignature.setSignDate(signDateCalendar);
+            pdSignature.setName("userData.getSignatureName()");
+            pdSignature.setReason("userData.getSignatureReason()");
+            pdSignature.setLocation("userData.getSignatureLocation()");
+            pdSignature.setContactInfo("userData.getSignatureContactInfo()");
+            pdDocument.addSignature(pdSignature);
+            removeSignatureField(acroForm, pdSignature);
+            for (PDPage pdPage : pdDocument.getPages()) {
+                PDRectangle rect = new PDRectangle(100, 600, 300, 100);
+                addSignatureField(pdDocument, pdPage, rect, pdSignature);
+            }
+            ExternalSigningSupport pbSigningSupport = pdDocument.saveIncrementalForExternalSigning(result);
+            pbSigningSupport.setSignature(new byte[0]);
+        }
+    }
+
+    /** @see #testCreateSignatureWithMultipleVisualizationsWebApplicationAudit_DigitalOnboarding_v10mesoneer003() */
+    void removeSignatureField(PDAcroForm acroForm, PDSignature pdSignature) {
+        PDSignatureField signatureField = null;
+        for (PDField pdField : acroForm.getFieldTree()) {
+            if (pdField instanceof PDSignatureField) {
+                PDSignature signature = ((PDSignatureField) pdField).getSignature();
+                if (signature != null && signature.getCOSObject().equals(pdSignature.getCOSObject())) {
+                    signatureField = (PDSignatureField) pdField;
+                    break;
+                }
+            }
+        }
+
+        if (signatureField != null) {
+            COSArray fieldsArray = (COSArray)acroForm.getCOSObject().getDictionaryObject(COSName.FIELDS);
+            if (fieldsArray != null)
+                fieldsArray.remove(signatureField.getCOSObject());
+
+            PDAnnotationWidget widget = signatureField.getWidgets().get(0);
+            PDPage page = widget.getPage();
+            COSArray annotsArray = (COSArray)page.getCOSObject().getDictionaryObject(COSName.ANNOTS);
+            if (annotsArray != null)
+                annotsArray.remove(widget.getCOSObject());
+        }
+    }
 
     /**
      * Copy of <code>org.apache.pdfbox.examples.signature.CreateSignatureBase.sign(InputStream)</code>
